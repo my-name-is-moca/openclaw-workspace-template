@@ -211,6 +211,80 @@ EOF
 fi
 
 # ==========================================
+# 7. Telegram Bot Setup (interactive)
+# ==========================================
+PROFILE_UPPER=$(echo "$PROFILE" | tr '[:lower:]' '[:upper:]')
+BOT_TOKEN_VAR="TELEGRAM_BOT_TOKEN_${PROFILE_UPPER}"
+
+# Check if token already exists in vault
+EXISTING_TOKEN=$(eval echo "\${$BOT_TOKEN_VAR:-}")
+
+if [ -n "$EXISTING_TOKEN" ]; then
+    echo -e "${G}🤖 Telegram bot token found in vault (${BOT_TOKEN_VAR})${N}"
+    TG_TOKEN="$EXISTING_TOKEN"
+else
+    echo ""
+    echo -e "${Y}🤖 Telegram Bot Setup${N}"
+    echo "   Create a bot via @BotFather → /newbot"
+    echo "   Recommended name: ${PROFILE}-bot"
+    echo ""
+    read -p "   Paste bot token (or Enter to skip): " TG_TOKEN
+fi
+
+if [ -n "$TG_TOKEN" ]; then
+    # Patch openclaw.json with telegram config
+    python3 << PYEOF2
+import json, os
+config_path = os.path.expanduser("~/.openclaw-${PROFILE}/openclaw.json")
+c = json.load(open(config_path))
+c.setdefault("channels", {})["telegram"] = {
+    "enabled": True,
+    "botToken": "${TG_TOKEN}",
+    "dmPolicy": "pairing",
+    "groupPolicy": "allowlist",
+    "groups": {},
+    "streamMode": "partial"
+}
+c.setdefault("plugins", {}).setdefault("entries", {})["telegram"] = {"enabled": True}
+json.dump(c, open(config_path, "w"), indent=2)
+print("   ✅ Telegram configured")
+PYEOF2
+
+    # Save to vault if new token
+    if [ -z "$EXISTING_TOKEN" ] && [ -f "$ENC_FILE" ]; then
+        echo -e "${G}🔐 Saving token to vault as ${BOT_TOKEN_VAR}...${N}"
+        # Decrypt → append → re-encrypt
+        TEMP_VAULT=$(mktemp)
+        sops --decrypt --input-type dotenv --output-type dotenv "$ENC_FILE" > "$TEMP_VAULT"
+
+        # Remove existing line if any, then append
+        grep -v "^${BOT_TOKEN_VAR}=" "$TEMP_VAULT" > "${TEMP_VAULT}.tmp" || true
+        echo "${BOT_TOKEN_VAR}=${TG_TOKEN}" >> "${TEMP_VAULT}.tmp"
+        mv "${TEMP_VAULT}.tmp" "$TEMP_VAULT"
+
+        # Re-encrypt
+        AGE_PUB=$(grep "public key:" "$SOPS_AGE_KEY_FILE" | awk '{print $NF}')
+        sops --encrypt --age "$AGE_PUB" --input-type dotenv --output-type dotenv "$TEMP_VAULT" > "$ENC_FILE"
+        rm -f "$TEMP_VAULT"
+        echo -e "${G}   ✅ Token saved to vault${N}"
+
+        # Also update profile .env
+        echo "${BOT_TOKEN_VAR}=${TG_TOKEN}" >> "${PROFILE_DIR}/.env"
+
+        # Commit vault changes
+        (cd "$VAULT_DIR" && git add -A && git commit -m "add ${BOT_TOKEN_VAR}" && git push) 2>/dev/null || true
+    fi
+
+    echo ""
+    echo -e "${Y}📱 Next: Create a Telegram group for this profile${N}"
+    echo "   1. Create group (enable Topics in group settings)"
+    echo "   2. Add @$(echo $TG_TOKEN | cut -d: -f1) bot to group"
+    echo "   3. Send a message, then run:"
+    echo "      openclaw --profile ${PROFILE} configure --section telegram"
+    echo "   4. Or manually add group ID to openclaw.json"
+fi
+
+# ==========================================
 # Done!
 # ==========================================
 echo ""
