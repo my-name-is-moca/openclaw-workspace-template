@@ -145,6 +145,7 @@ defaults.setdefault("compaction", {})["mode"] = "safeguard"
 # Hooks (internal only, no webhook token needed)
 c["hooks"] = {
     "internal": {
+        "enabled": True,
         "entries": {
             "session-memory": {"enabled": True},
             "command-logger": {"enabled": True}
