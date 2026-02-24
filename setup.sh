@@ -1,192 +1,203 @@
 #!/bin/bash
 # ============================================
-# OpenClaw Profile Setup Script
-# Usage: ./setup.sh <profile-name> [template]
-# Example: ./setup.sh dev
-#          ./setup.sh basecard dev-team
+# OpenClaw Profile Setup (Non-Interactive)
+# Usage: ./setup.sh <profile> [template] [port]
+# Example: ./setup.sh dev base 18889
+#          ./setup.sh basecard dev-team 18989
 # ============================================
 
 set -e
 
 PROFILE=${1:-dev}
-TEMPLATE=${2:-base}  # base, dev-team, trading, research
+TEMPLATE=${2:-base}
+PORT=${3:-$((18789 + RANDOM % 200 + 100))}
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-
-# Colors
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m'
-
-echo -e "${GREEN}🦞 OpenClaw Profile Setup: ${PROFILE}${NC}"
-echo -e "   Template: ${TEMPLATE}"
-echo ""
-
-# ==========================================
-# 1. Load secrets (~/sops vault or local .env)
-# ==========================================
-VAULT_DIR="${SOPS_VAULT:-$HOME/sops}"
-ENV_FILE="${SCRIPT_DIR}/.env"
-ENC_FILE="${VAULT_DIR}/.env.enc"
-
-if [ -f "$ENV_FILE" ]; then
-    echo -e "${GREEN}🔑 Loading secrets from local .env${NC}"
-    source "$ENV_FILE"
-elif [ -f "$ENC_FILE" ]; then
-    echo -e "${GREEN}🔐 Decrypting secrets from ${VAULT_DIR}/.env.enc${NC}"
-    if ! command -v sops &>/dev/null; then
-        echo -e "${RED}❌ sops not installed. Run: brew install sops${NC}"
-        exit 1
-    fi
-    TEMP_ENV=$(mktemp)
-    sops --decrypt --input-type dotenv --output-type dotenv "$ENC_FILE" > "$TEMP_ENV" 2>/dev/null
-    source "$TEMP_ENV"
-    rm -f "$TEMP_ENV"
-else
-    echo -e "${RED}❌ No secrets found. Either:${NC}"
-    echo "   1. Create local .env from .env.example"
-    echo "   2. Set up ~/sops vault: cd ~/sops && ./vault.sh init && ./vault.sh encrypt"
-    exit 1
-fi
-
-# Check required key
-if [ -z "$ANTHROPIC_API_KEY" ]; then
-    echo -e "${RED}❌ ANTHROPIC_API_KEY not found in secrets${NC}"
-    exit 1
-fi
-
-# ==========================================
-# 2. Determine ports (avoid conflicts)
-# ==========================================
-BASE_PORT=18789
-case "$PROFILE" in
-    dev)       PORT=$((BASE_PORT + 100)) ;;  # 18889
-    basecard)  PORT=$((BASE_PORT + 200)) ;;  # 18989
-    *)         PORT=$((BASE_PORT + 300)) ;;  # 19089
-esac
-
 PROFILE_DIR="$HOME/.openclaw-${PROFILE}"
-
-echo -e "${YELLOW}📁 Profile dir: ${PROFILE_DIR}${NC}"
-echo -e "${YELLOW}🔌 Gateway port: ${PORT}${NC}"
-echo ""
-
-# ==========================================
-# 3. Run non-interactive onboard
-# ==========================================
-echo -e "${GREEN}⚙️  Running onboard...${NC}"
-
-ONBOARD_ARGS=(
-    --profile "$PROFILE"
-    onboard
-    --non-interactive
-    --accept-risk
-    --flow quickstart
-    --mode local
-    --auth-choice token
-    --token "$ANTHROPIC_API_KEY"
-    --token-provider anthropic
-    --gateway-port "$PORT"
-    --gateway-bind loopback
-    --gateway-auth token
-    --node-manager pnpm
-    --skip-channels
-    --skip-skills
-    --skip-daemon
-    --skip-ui
-    --skip-health
-    --workspace "${PROFILE_DIR}/workspace"
-)
-
-# Add optional keys
-[ -n "$GEMINI_API_KEY" ] && ONBOARD_ARGS+=(--gemini-api-key "$GEMINI_API_KEY")
-[ -n "$OPENROUTER_API_KEY" ] && ONBOARD_ARGS+=(--openrouter-api-key "$OPENROUTER_API_KEY")
-[ -n "$BRAVE_API_KEY" ] && ONBOARD_ARGS+=(--brave-api-key "$BRAVE_API_KEY" 2>/dev/null || true)
-
-openclaw "${ONBOARD_ARGS[@]}" 2>&1 || {
-    echo -e "${YELLOW}⚠️  Onboard had warnings (may be ok). Continuing...${NC}"
-}
-
-# ==========================================
-# 4. Copy template files
-# ==========================================
-echo -e "${GREEN}📋 Applying template: ${TEMPLATE}${NC}"
-
-TEMPLATE_DIR="${SCRIPT_DIR}/workspace/templates"
+VAULT_DIR="${SOPS_VAULT:-$HOME/sops}"
 WORKSPACE="${PROFILE_DIR}/workspace"
 
-# Copy base template first
-if [ -d "${TEMPLATE_DIR}/base" ]; then
-    cp -n "${TEMPLATE_DIR}/base/"* "${WORKSPACE}/" 2>/dev/null || true
-fi
+# Colors
+G='\033[0;32m'; Y='\033[1;33m'; R='\033[0;31m'; N='\033[0m'
 
-# Copy specific template (override base)
-if [ -d "${TEMPLATE_DIR}/${TEMPLATE}" ] && [ "$TEMPLATE" != "base" ]; then
-    cp -r "${TEMPLATE_DIR}/${TEMPLATE}/"* "${WORKSPACE}/" 2>/dev/null || true
-fi
-
-# Create memory dir
-mkdir -p "${WORKSPACE}/memory"
+echo -e "${G}🦞 OpenClaw Profile Setup${N}"
+echo "   Profile:  ${PROFILE}"
+echo "   Template: ${TEMPLATE}"
+echo "   Port:     ${PORT}"
+echo "   Dir:      ${PROFILE_DIR}"
+echo ""
 
 # ==========================================
-# 5. Deploy .env to profile (from vault)
+# 1. Load secrets from ~/sops vault
 # ==========================================
-if [ -f "$ENV_FILE" ]; then
-    cp "$ENV_FILE" "${PROFILE_DIR}/.env"
-elif [ -f "$ENC_FILE" ]; then
-    sops --decrypt --input-type dotenv --output-type dotenv "$ENC_FILE" > "${PROFILE_DIR}/.env"
+export SOPS_AGE_KEY_FILE="${SOPS_AGE_KEY_FILE:-$HOME/.config/sops/age/keys.txt}"
+
+if [ ! -f "$SOPS_AGE_KEY_FILE" ]; then
+    echo -e "${R}❌ Age key not found at $SOPS_AGE_KEY_FILE${N}"
+    echo "   Run: cd ~/sops && ./vault.sh init"
+    exit 1
 fi
+
+ENC_FILE="${VAULT_DIR}/.env.enc"
+if [ ! -f "$ENC_FILE" ]; then
+    echo -e "${R}❌ Vault not found at ${ENC_FILE}${N}"
+    echo "   Run: cd ~/sops && ./vault.sh encrypt"
+    exit 1
+fi
+
+echo -e "${G}🔐 Decrypting secrets from vault...${N}"
+TEMP_ENV=$(mktemp)
+sops --decrypt --input-type dotenv --output-type dotenv "$ENC_FILE" > "$TEMP_ENV"
+source "$TEMP_ENV"
+
+if [ -z "$ANTHROPIC_API_KEY" ]; then
+    echo -e "${R}❌ ANTHROPIC_API_KEY not found in vault${N}"
+    rm -f "$TEMP_ENV"
+    exit 1
+fi
+echo -e "${G}   ✅ Keys loaded${N}"
+
+# ==========================================
+# 2. Run openclaw onboard (non-interactive)
+# ==========================================
+echo -e "${G}⚙️  Running onboard...${N}"
+
+openclaw --profile "$PROFILE" onboard \
+    --non-interactive \
+    --accept-risk \
+    --flow quickstart \
+    --mode local \
+    --auth-choice token \
+    --token "$ANTHROPIC_API_KEY" \
+    --token-provider anthropic \
+    --gateway-port "$PORT" \
+    --gateway-bind loopback \
+    --gateway-auth token \
+    --node-manager pnpm \
+    --skip-channels \
+    --skip-skills \
+    --skip-daemon \
+    --skip-ui \
+    --skip-health \
+    --workspace "$WORKSPACE" \
+    2>&1 || echo -e "${Y}⚠️  Onboard warnings (continuing...)${N}"
+
+# ==========================================
+# 3. Deploy .env to profile
+# ==========================================
+echo -e "${G}🔑 Deploying secrets...${N}"
+cp "$TEMP_ENV" "${PROFILE_DIR}/.env"
 chmod 600 "${PROFILE_DIR}/.env"
-echo -e "${GREEN}🔑 Secrets deployed to ${PROFILE_DIR}/.env${NC}"
+rm -f "$TEMP_ENV"
 
 # ==========================================
-# 6. Copy skill-registry if it exists
+# 4. Patch openclaw.json
 # ==========================================
-if [ -f "${SCRIPT_DIR}/workspace/skill-registry.json" ]; then
-    cp "${SCRIPT_DIR}/workspace/skill-registry.json" "${WORKSPACE}/skill-registry.json"
+echo -e "${G}📝 Configuring openclaw.json...${N}"
+
+python3 << PYEOF
+import json, os
+
+config_path = os.path.expanduser("~/.openclaw-${PROFILE}/openclaw.json")
+c = json.load(open(config_path))
+
+# Web search
+brave_key = os.environ.get("BRAVE_API_KEY", "")
+if brave_key:
+    c.setdefault("tools", {})["web"] = {
+        "search": {"enabled": True, "apiKey": brave_key},
+        "fetch": {"enabled": True}
+    }
+
+# Memory search (Gemini)
+gemini_key = os.environ.get("GEMINI_API_KEY", "")
+if gemini_key:
+    c.setdefault("agents", {}).setdefault("defaults", {})["memorySearch"] = {
+        "provider": "gemini",
+        "model": "gemini-embedding-001",
+        "query": {"hybrid": {"enabled": True, "vectorWeight": 0.7, "textWeight": 0.3}}
+    }
+
+# Performance
+defaults = c.setdefault("agents", {}).setdefault("defaults", {})
+defaults["maxConcurrent"] = 8
+defaults["subagents"] = {"maxConcurrent": 16, "model": "claude-sonnet-4-20250514"}
+defaults.setdefault("compaction", {})["mode"] = "safeguard"
+
+# Hooks
+c["hooks"] = {
+    "enabled": True,
+    "entries": {
+        "session-memory": {"enabled": True},
+        "command-logger": {"enabled": True}
+    }
+}
+
+json.dump(c, open(config_path, "w"), indent=2)
+print("   ✅ Config patched")
+PYEOF
+
+# ==========================================
+# 5. Deploy workspace files from template
+# ==========================================
+echo -e "${G}📋 Applying template: ${TEMPLATE}${N}"
+
+TEMPLATE_DIR="${SCRIPT_DIR}/workspace/templates"
+
+# Copy base template
+if [ -d "${TEMPLATE_DIR}/base" ]; then
+    for f in "${TEMPLATE_DIR}/base/"*; do
+        [ -f "$f" ] && cp -n "$f" "$WORKSPACE/" 2>/dev/null || true
+    done
 fi
 
+# Copy specific template (overrides base)
+if [ -d "${TEMPLATE_DIR}/${TEMPLATE}" ] && [ "$TEMPLATE" != "base" ]; then
+    for f in "${TEMPLATE_DIR}/${TEMPLATE}/"*; do
+        [ -f "$f" ] && cp "$f" "$WORKSPACE/" 2>/dev/null || true
+    done
+fi
+
+# Ensure dirs exist
+mkdir -p "$WORKSPACE/memory" "$WORKSPACE/skills"
+
+# Remove bootstrap (we're past that)
+rm -f "$WORKSPACE/BOOTSTRAP.md"
+
+# Copy skill registry if available
+[ -f "${SCRIPT_DIR}/workspace/skill-registry.json" ] && \
+    cp "${SCRIPT_DIR}/workspace/skill-registry.json" "$WORKSPACE/"
+
 # ==========================================
-# 7. For dev-team: create agent workspaces
+# 6. Dev-team: create agent workspaces
 # ==========================================
 if [ "$TEMPLATE" = "dev-team" ]; then
-    echo -e "${GREEN}👥 Creating agent workspaces...${NC}"
+    echo -e "${G}👥 Creating agent workspaces...${N}"
     for agent in frontend backend contract; do
         agent_ws="${PROFILE_DIR}/workspace-${agent}"
         mkdir -p "${agent_ws}/memory"
-        # Copy base AGENTS.md if not exists
         [ ! -f "${agent_ws}/AGENTS.md" ] && cat > "${agent_ws}/AGENTS.md" << EOF
 # AGENTS.md - ${agent^} Agent
 
 ## Role
-${agent^} development agent for the project.
+${agent^} development agent.
 
 ## Rules
-- Work only in your assigned repo
+- Work only in your assigned repo under repos/
 - Create feature branches, never push to main
 - Run tests before creating PRs
-- Coordinate with PM for cross-repo changes
 EOF
     done
-    
-    # Create repos directory
     mkdir -p "${PROFILE_DIR}/repos"
-    echo -e "${GREEN}📂 Created repos/ directory for git clones${NC}"
+    echo -e "${G}   📂 Created repos/ for git clones${N}"
 fi
 
 # ==========================================
 # Done!
 # ==========================================
 echo ""
-echo -e "${GREEN}✅ Profile '${PROFILE}' setup complete!${NC}"
+echo -e "${G}✅ Profile '${PROFILE}' ready!${N}"
 echo ""
-echo "Next steps:"
-echo "  1. Review: ${PROFILE_DIR}/workspace/AGENTS.md"
-echo "  2. Start:  openclaw --profile ${PROFILE} gateway --port ${PORT}"
+echo "   Start gateway:"
+echo "   openclaw --profile ${PROFILE} gateway --port ${PORT}"
 echo ""
-if [ "$TEMPLATE" = "dev-team" ]; then
-    echo "  3. Clone repos:"
-    echo "     cd ${PROFILE_DIR}/repos"
-    echo "     git clone <your-repos>"
-    echo ""
-fi
+[ "$TEMPLATE" = "dev-team" ] && echo "   Clone repos: cd ${PROFILE_DIR}/repos && git clone <url>"
