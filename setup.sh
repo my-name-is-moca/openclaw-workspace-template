@@ -61,24 +61,43 @@ echo -e "${G}   ✅ Keys loaded${N}"
 # ==========================================
 echo -e "${G}⚙️  Running onboard...${N}"
 
-openclaw --profile "$PROFILE" onboard \
-    --non-interactive \
-    --accept-risk \
-    --flow quickstart \
-    --mode local \
-    --auth-choice token \
-    --token "$ANTHROPIC_API_KEY" \
-    --token-provider anthropic \
-    --gateway-port "$PORT" \
-    --gateway-bind loopback \
-    --gateway-auth token \
-    --node-manager pnpm \
-    --skip-channels \
-    --skip-skills \
-    --skip-daemon \
-    --skip-ui \
-    --skip-health \
-    --workspace "$WORKSPACE" \
+ONBOARD_ARGS=(
+    --non-interactive
+    --accept-risk
+    --flow quickstart
+    --mode local
+    --auth-choice token
+    --token "$ANTHROPIC_API_KEY"
+    --token-provider anthropic
+    --gateway-port "$PORT"
+    --gateway-bind loopback
+    --gateway-auth token
+    --node-manager pnpm
+    --skip-channels
+    --skip-skills
+    --skip-daemon
+    --skip-ui
+    --skip-health
+    --workspace "$WORKSPACE"
+)
+
+# Auto-inject all available API keys from vault
+[ -n "$GEMINI_API_KEY" ]      && ONBOARD_ARGS+=(--gemini-api-key "$GEMINI_API_KEY")
+[ -n "$OPENAI_API_KEY" ]      && ONBOARD_ARGS+=(--openai-api-key "$OPENAI_API_KEY")
+[ -n "$OPENROUTER_API_KEY" ]  && ONBOARD_ARGS+=(--openrouter-api-key "$OPENROUTER_API_KEY")
+[ -n "$XAI_API_KEY" ]         && ONBOARD_ARGS+=(--xai-api-key "$XAI_API_KEY")
+[ -n "$MISTRAL_API_KEY" ]     && ONBOARD_ARGS+=(--mistral-api-key "$MISTRAL_API_KEY")
+[ -n "$TOGETHER_API_KEY" ]    && ONBOARD_ARGS+=(--together-api-key "$TOGETHER_API_KEY")
+[ -n "$HUGGINGFACE_API_KEY" ] && ONBOARD_ARGS+=(--huggingface-api-key "$HUGGINGFACE_API_KEY")
+[ -n "$VENICE_API_KEY" ]      && ONBOARD_ARGS+=(--venice-api-key "$VENICE_API_KEY")
+[ -n "$MOONSHOT_API_KEY" ]    && ONBOARD_ARGS+=(--moonshot-api-key "$MOONSHOT_API_KEY")
+[ -n "$ZAI_API_KEY" ]         && ONBOARD_ARGS+=(--zai-api-key "$ZAI_API_KEY")
+[ -n "$LITELLM_API_KEY" ]     && ONBOARD_ARGS+=(--litellm-api-key "$LITELLM_API_KEY")
+
+# Show which keys are being injected
+echo -e "${G}   Keys: ANTHROPIC=✅ $([ -n "$GEMINI_API_KEY" ] && echo "GEMINI=✅") $([ -n "$OPENAI_API_KEY" ] && echo "OPENAI=✅") $([ -n "$OPENROUTER_API_KEY" ] && echo "OPENROUTER=✅") $([ -n "$XAI_API_KEY" ] && echo "XAI=✅")${N}"
+
+openclaw --profile "$PROFILE" onboard "${ONBOARD_ARGS[@]}" \
     2>&1 || echo -e "${Y}⚠️  Onboard warnings (continuing...)${N}"
 
 # ==========================================
