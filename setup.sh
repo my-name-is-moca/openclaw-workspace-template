@@ -142,9 +142,8 @@ defaults["maxConcurrent"] = 8
 defaults["subagents"] = {"maxConcurrent": 16, "model": "claude-sonnet-4-20250514"}
 defaults.setdefault("compaction", {})["mode"] = "safeguard"
 
-# Hooks
+# Hooks (internal only, no webhook token needed)
 c["hooks"] = {
-    "enabled": True,
     "internal": {
         "entries": {
             "session-memory": {"enabled": True},
