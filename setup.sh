@@ -289,13 +289,7 @@ EOF
 fi
 
 # ==========================================
-# 8. Validate config
-# ==========================================
-echo -e "${G}🔍 Validating config...${N}"
-openclaw --profile "$PROFILE" doctor 2>&1 | head -20 || true
-
-# ==========================================
-# 9. Kill any orphan gateway for this profile
+# 8. Kill any orphan gateway for this profile
 # ==========================================
 pkill -f "openclaw-gateway.*${PORT}" 2>/dev/null || true
 
