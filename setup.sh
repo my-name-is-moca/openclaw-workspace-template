@@ -145,9 +145,11 @@ defaults.setdefault("compaction", {})["mode"] = "safeguard"
 # Hooks
 c["hooks"] = {
     "enabled": True,
-    "entries": {
-        "session-memory": {"enabled": True},
-        "command-logger": {"enabled": True}
+    "internal": {
+        "entries": {
+            "session-memory": {"enabled": True},
+            "command-logger": {"enabled": True}
+        }
     }
 }
 
