@@ -1,0 +1,48 @@
+{
+  "installed": {
+    "gog": {
+      "version": "latest",
+      "installed": "2026-02-23",
+      "lastUsed": null,
+      "category": "productivity",
+      "rating": 0,
+      "description": "Google Workspace (Gmail, Calendar, Drive)"
+    },
+    "daily-trending": {
+      "version": "latest",
+      "installed": "2026-02-23",
+      "lastUsed": null,
+      "category": "discovery",
+      "rating": 0,
+      "description": "Daily trending skills discovery"
+    },
+    "topclawhubskills": {
+      "version": "latest",
+      "installed": "2026-02-23",
+      "lastUsed": null,
+      "category": "discovery",
+      "rating": 0,
+      "description": "Top ClawHub skills listing"
+    }
+  },
+  "watchlist": {
+    "browser-automation": {
+      "reason": "Useful but flagged by VirusTotal - review source first",
+      "discovered": "2026-02-23"
+    },
+    "agent-orchestrator": {
+      "reason": "Multi-agent orchestration - flagged by VirusTotal",
+      "discovered": "2026-02-23"
+    },
+    "coding-agent": {
+      "reason": "Coding agent integration - not found on ClawHub",
+      "discovered": "2026-02-23"
+    }
+  },
+  "rejected": {
+    "find-skills": {
+      "reason": "Flagged as suspicious by VirusTotal",
+      "discovered": "2026-02-23"
+    }
+  }
+}

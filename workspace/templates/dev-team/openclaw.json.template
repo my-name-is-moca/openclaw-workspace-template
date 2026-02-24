@@ -1,0 +1,70 @@
+{
+  "agents": {
+    "defaults": {
+      "compaction": { "mode": "safeguard" },
+      "maxConcurrent": 8,
+      "subagents": {
+        "maxConcurrent": 16,
+        "model": "claude-sonnet-4-20250514"
+      },
+      "memorySearch": {
+        "provider": "gemini",
+        "model": "gemini-embedding-001",
+        "query": {
+          "hybrid": { "enabled": true, "vectorWeight": 0.7, "textWeight": 0.3 }
+        }
+      }
+    },
+    "list": [
+      {
+        "id": "pm",
+        "default": true,
+        "name": "Project Manager",
+        "workspace": "PROFILE_DIR/workspace"
+      },
+      {
+        "id": "frontend",
+        "name": "Frontend Dev",
+        "workspace": "PROFILE_DIR/workspace-frontend"
+      },
+      {
+        "id": "backend",
+        "name": "Backend Dev",
+        "workspace": "PROFILE_DIR/workspace-backend"
+      },
+      {
+        "id": "contract",
+        "name": "Contract Dev",
+        "workspace": "PROFILE_DIR/workspace-contract"
+      }
+    ]
+  },
+  "hooks": {
+    "enabled": true,
+    "entries": {
+      "session-memory": { "enabled": true },
+      "command-logger": { "enabled": true }
+    }
+  },
+  "tools": {
+    "web": {
+      "search": { "enabled": true, "apiKey": "YOUR_BRAVE_API_KEY" },
+      "fetch": { "enabled": true }
+    }
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "botToken": "YOUR_BOT_TOKEN",
+      "groupPolicy": "allowlist",
+      "groups": {
+        "YOUR_GROUP_ID": { "requireMention": false }
+      }
+    }
+  },
+  "gateway": {
+    "port": 19789,
+    "mode": "local",
+    "bind": "loopback"
+  }
+}

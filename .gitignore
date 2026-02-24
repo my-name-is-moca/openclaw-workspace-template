@@ -1,0 +1,43 @@
+# Secrets
+.env
+.env.*
+!.env.example
+openclaw.json
+
+# Credentials
+credentials/
+agents/*/auth-profiles.json
+**/secrets/
+**/*.key
+**/*.pem
+
+# Sessions & state
+agents/*/sessions/
+cron/
+media/
+browser/
+
+# Dependencies
+**/node_modules/
+**/venv/
+**/__pycache__/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+**/*.log
+**/logs/
+
+# Repos (each has own git)
+repos/
+
+# Build
+**/build/
+**/dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
