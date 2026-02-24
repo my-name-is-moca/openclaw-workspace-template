@@ -23,29 +23,29 @@ echo -e "   Template: ${TEMPLATE}"
 echo ""
 
 # ==========================================
-# 1. Load secrets (vault or plain .env)
+# 1. Load secrets (~/sops vault or local .env)
 # ==========================================
+VAULT_DIR="${SOPS_VAULT:-$HOME/sops}"
 ENV_FILE="${SCRIPT_DIR}/.env"
-ENC_FILE="${SCRIPT_DIR}/.env.enc"
+ENC_FILE="${VAULT_DIR}/.env.enc"
 
 if [ -f "$ENV_FILE" ]; then
-    echo -e "${GREEN}🔑 Loading secrets from .env${NC}"
+    echo -e "${GREEN}🔑 Loading secrets from local .env${NC}"
     source "$ENV_FILE"
 elif [ -f "$ENC_FILE" ]; then
-    echo -e "${GREEN}🔐 Decrypting secrets from .env.enc (sops + age)${NC}"
+    echo -e "${GREEN}🔐 Decrypting secrets from ${VAULT_DIR}/.env.enc${NC}"
     if ! command -v sops &>/dev/null; then
         echo -e "${RED}❌ sops not installed. Run: brew install sops${NC}"
         exit 1
     fi
-    # Decrypt to temp file, source it, then delete
     TEMP_ENV=$(mktemp)
     sops --decrypt --input-type dotenv --output-type dotenv "$ENC_FILE" > "$TEMP_ENV" 2>/dev/null
     source "$TEMP_ENV"
     rm -f "$TEMP_ENV"
 else
     echo -e "${RED}❌ No secrets found. Either:${NC}"
-    echo "   1. Copy .env.example → .env and fill in your keys"
-    echo "   2. Create .env.enc: sops --encrypt --age <pubkey> .env > .env.enc"
+    echo "   1. Create local .env from .env.example"
+    echo "   2. Set up ~/sops vault: cd ~/sops && ./vault.sh init && ./vault.sh encrypt"
     exit 1
 fi
 
@@ -129,7 +129,7 @@ fi
 mkdir -p "${WORKSPACE}/memory"
 
 # ==========================================
-# 5. Deploy .env to profile (decrypt if needed)
+# 5. Deploy .env to profile (from vault)
 # ==========================================
 if [ -f "$ENV_FILE" ]; then
     cp "$ENV_FILE" "${PROFILE_DIR}/.env"
@@ -137,6 +137,7 @@ elif [ -f "$ENC_FILE" ]; then
     sops --decrypt --input-type dotenv --output-type dotenv "$ENC_FILE" > "${PROFILE_DIR}/.env"
 fi
 chmod 600 "${PROFILE_DIR}/.env"
+echo -e "${GREEN}🔑 Secrets deployed to ${PROFILE_DIR}/.env${NC}"
 
 # ==========================================
 # 6. Copy skill-registry if it exists
