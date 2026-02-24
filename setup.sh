@@ -72,7 +72,7 @@ ONBOARD_ARGS=(
     --gateway-port "$PORT"
     --gateway-bind loopback
     --gateway-auth token
-    --node-manager pnpm
+    --node-manager npm
     --skip-channels
     --skip-skills
     --skip-daemon
@@ -94,7 +94,6 @@ ONBOARD_ARGS=(
 [ -n "$ZAI_API_KEY" ]         && ONBOARD_ARGS+=(--zai-api-key "$ZAI_API_KEY")
 [ -n "$LITELLM_API_KEY" ]     && ONBOARD_ARGS+=(--litellm-api-key "$LITELLM_API_KEY")
 
-# Show which keys are being injected
 echo -e "${G}   Keys: ANTHROPIC=✅ $([ -n "$GEMINI_API_KEY" ] && echo "GEMINI=✅") $([ -n "$OPENAI_API_KEY" ] && echo "OPENAI=✅") $([ -n "$OPENROUTER_API_KEY" ] && echo "OPENROUTER=✅") $([ -n "$XAI_API_KEY" ] && echo "XAI=✅")${N}"
 
 openclaw --profile "$PROFILE" onboard "${ONBOARD_ARGS[@]}" \
@@ -109,7 +108,43 @@ chmod 600 "${PROFILE_DIR}/.env"
 rm -f "$TEMP_ENV"
 
 # ==========================================
-# 4. Patch openclaw.json
+# 4. Telegram Bot Setup (interactive, before config patch)
+# ==========================================
+PROFILE_UPPER=$(echo "$PROFILE" | tr '[:lower:]' '[:upper:]')
+BOT_TOKEN_VAR="TELEGRAM_BOT_TOKEN_${PROFILE_UPPER}"
+EXISTING_TOKEN=$(eval echo "\${$BOT_TOKEN_VAR:-}")
+TG_TOKEN=""
+
+if [ -n "$EXISTING_TOKEN" ]; then
+    echo -e "${G}🤖 Telegram bot token found in vault (${BOT_TOKEN_VAR})${N}"
+    TG_TOKEN="$EXISTING_TOKEN"
+else
+    echo ""
+    echo -e "${Y}🤖 Telegram Bot Setup${N}"
+    echo "   Create a bot via @BotFather → /newbot"
+    echo "   Recommended name: ${PROFILE}-bot"
+    echo ""
+    read -p "   Paste bot token (or Enter to skip): " TG_TOKEN
+
+    # Save new token to vault
+    if [ -n "$TG_TOKEN" ] && [ -f "$ENC_FILE" ]; then
+        echo -e "${G}🔐 Saving token to vault as ${BOT_TOKEN_VAR}...${N}"
+        TEMP_VAULT=$(mktemp)
+        sops --decrypt --input-type dotenv --output-type dotenv "$ENC_FILE" > "$TEMP_VAULT"
+        grep -v "^${BOT_TOKEN_VAR}=" "$TEMP_VAULT" > "${TEMP_VAULT}.tmp" || true
+        echo "${BOT_TOKEN_VAR}=${TG_TOKEN}" >> "${TEMP_VAULT}.tmp"
+        mv "${TEMP_VAULT}.tmp" "$TEMP_VAULT"
+        AGE_PUB=$(grep "public key:" "$SOPS_AGE_KEY_FILE" | awk '{print $NF}')
+        sops --encrypt --age "$AGE_PUB" --input-type dotenv --output-type dotenv "$TEMP_VAULT" > "$ENC_FILE"
+        rm -f "$TEMP_VAULT"
+        echo "${BOT_TOKEN_VAR}=${TG_TOKEN}" >> "${PROFILE_DIR}/.env"
+        (cd "$VAULT_DIR" && git add -A && git commit -m "add ${BOT_TOKEN_VAR}" && git push) 2>/dev/null || true
+        echo -e "${G}   ✅ Token saved to vault${N}"
+    fi
+fi
+
+# ==========================================
+# 5. Patch openclaw.json (single pass, docs-compliant)
 # ==========================================
 echo -e "${G}📝 Configuring openclaw.json...${N}"
 
@@ -119,7 +154,32 @@ import json, os
 config_path = os.path.expanduser("~/.openclaw-${PROFILE}/openclaw.json")
 c = json.load(open(config_path))
 
-# Web search
+# --- Remove any invalid keys doctor would complain about ---
+for bad_key in ["discovery", "auth", "wizard", "streaming"]:
+    c.pop(bad_key, None)
+
+# --- agents.defaults ---
+defaults = c.setdefault("agents", {}).setdefault("defaults", {})
+
+# Performance (docs: agents.defaults.maxConcurrent)
+defaults["maxConcurrent"] = 8
+
+# Subagents (docs: agents.defaults.subagents -- not in reference but used by runtime)
+defaults["subagents"] = {"maxConcurrent": 16, "model": "claude-sonnet-4-20250514"}
+
+# Compaction (docs: agents.defaults.compaction)
+defaults["compaction"] = {"mode": "safeguard"}
+
+# Memory search (Gemini embeddings)
+gemini_key = os.environ.get("GEMINI_API_KEY", "")
+if gemini_key:
+    defaults["memorySearch"] = {
+        "provider": "gemini",
+        "model": "gemini-embedding-001",
+        "query": {"hybrid": {"enabled": True, "vectorWeight": 0.7, "textWeight": 0.3}}
+    }
+
+# --- tools.web (docs: tools section) ---
 brave_key = os.environ.get("BRAVE_API_KEY", "")
 if brave_key:
     c.setdefault("tools", {})["web"] = {
@@ -127,22 +187,7 @@ if brave_key:
         "fetch": {"enabled": True}
     }
 
-# Memory search (Gemini)
-gemini_key = os.environ.get("GEMINI_API_KEY", "")
-if gemini_key:
-    c.setdefault("agents", {}).setdefault("defaults", {})["memorySearch"] = {
-        "provider": "gemini",
-        "model": "gemini-embedding-001",
-        "query": {"hybrid": {"enabled": True, "vectorWeight": 0.7, "textWeight": 0.3}}
-    }
-
-# Performance
-defaults = c.setdefault("agents", {}).setdefault("defaults", {})
-defaults["maxConcurrent"] = 8
-defaults["subagents"] = {"maxConcurrent": 16, "model": "claude-sonnet-4-20250514"}
-defaults.setdefault("compaction", {})["mode"] = "safeguard"
-
-# Hooks (internal only, no webhook token needed)
+# --- hooks.internal (docs: hooks.internal.enabled + entries) ---
 c["hooks"] = {
     "internal": {
         "enabled": True,
@@ -153,25 +198,53 @@ c["hooks"] = {
     }
 }
 
+# --- channels.telegram (docs: channels.telegram) ---
+tg_token = "${TG_TOKEN}"
+if tg_token:
+    c.setdefault("channels", {})["telegram"] = {
+        "enabled": True,
+        "botToken": tg_token,
+        "dmPolicy": "pairing",
+        "groupPolicy": "allowlist",
+        "groups": {},
+        "streaming": "partial"  # docs: "streaming" not "streamMode"
+    }
+
+# --- Remove plugins.entries.telegram (not needed, telegram is built-in) ---
+plugins = c.get("plugins", {})
+entries = plugins.get("entries", {})
+entries.pop("telegram", None)
+if not entries:
+    plugins.pop("entries", None)
+if not plugins:
+    c.pop("plugins", None)
+
+# --- Final save ---
 json.dump(c, open(config_path, "w"), indent=2)
-print("   ✅ Config patched")
+print("   ✅ Config patched (docs-compliant)")
 PYEOF
 
 # ==========================================
-# 5. Deploy workspace files from template
+# 6. Deploy workspace files from template
 # ==========================================
 echo -e "${G}📋 Applying template: ${TEMPLATE}${N}"
 
 TEMPLATE_DIR="${SCRIPT_DIR}/workspace/templates"
 
-# Copy base template (force overwrite bootstrap defaults)
+# Always copy curated workspace files from script repo
+# (overrides bootstrap defaults from onboard)
+for f in AGENTS.md SOUL.md HEARTBEAT.md TOOLS.md; do
+    [ -f "${SCRIPT_DIR}/workspace/${f}" ] && cp "${SCRIPT_DIR}/workspace/${f}" "$WORKSPACE/"
+done
+
+# Copy base template files (won't overwrite above)
 if [ -d "${TEMPLATE_DIR}/base" ]; then
     for f in "${TEMPLATE_DIR}/base/"*; do
-        [ -f "$f" ] && cp "$f" "$WORKSPACE/" 2>/dev/null || true
+        [ -f "$f" ] && cp -n "$f" "$WORKSPACE/" 2>/dev/null || true
     done
 fi
 
-# Copy specific template (overrides base)
+# Copy specific template (overrides)
 if [ -d "${TEMPLATE_DIR}/${TEMPLATE}" ] && [ "$TEMPLATE" != "base" ]; then
     for f in "${TEMPLATE_DIR}/${TEMPLATE}/"*; do
         [ -f "$f" ] && cp "$f" "$WORKSPACE/" 2>/dev/null || true
@@ -181,21 +254,18 @@ fi
 # Ensure dirs exist
 mkdir -p "$WORKSPACE/memory" "$WORKSPACE/skills"
 
-# Remove bootstrap defaults (we have our own)
-rm -f "$WORKSPACE/BOOTSTRAP.md"
+# Copy templates dir for dev profile
+[ -d "${SCRIPT_DIR}/workspace/templates" ] && cp -r "${SCRIPT_DIR}/workspace/templates" "$WORKSPACE/" 2>/dev/null || true
 
-# For non-base templates, copy the main workspace curated files
-# (AGENTS.md, SOUL.md, HEARTBEAT.md, TOOLS.md from the script's workspace/)
-for f in AGENTS.md SOUL.md HEARTBEAT.md TOOLS.md; do
-    [ -f "${SCRIPT_DIR}/workspace/${f}" ] && cp "${SCRIPT_DIR}/workspace/${f}" "$WORKSPACE/"
-done
+# Remove bootstrap (we have our own files)
+rm -f "$WORKSPACE/BOOTSTRAP.md"
 
 # Copy skill registry if available
 [ -f "${SCRIPT_DIR}/workspace/skill-registry.json" ] && \
     cp "${SCRIPT_DIR}/workspace/skill-registry.json" "$WORKSPACE/"
 
 # ==========================================
-# 6. Dev-team: create agent workspaces
+# 7. Dev-team: create agent workspaces
 # ==========================================
 if [ "$TEMPLATE" = "dev-team" ]; then
     echo -e "${G}👥 Creating agent workspaces...${N}"
@@ -219,81 +289,13 @@ EOF
 fi
 
 # ==========================================
-# 7. Telegram Bot Setup (interactive)
+# 8. Validate config
 # ==========================================
-PROFILE_UPPER=$(echo "$PROFILE" | tr '[:lower:]' '[:upper:]')
-BOT_TOKEN_VAR="TELEGRAM_BOT_TOKEN_${PROFILE_UPPER}"
-
-# Check if token already exists in vault
-EXISTING_TOKEN=$(eval echo "\${$BOT_TOKEN_VAR:-}")
-
-if [ -n "$EXISTING_TOKEN" ]; then
-    echo -e "${G}🤖 Telegram bot token found in vault (${BOT_TOKEN_VAR})${N}"
-    TG_TOKEN="$EXISTING_TOKEN"
-else
-    echo ""
-    echo -e "${Y}🤖 Telegram Bot Setup${N}"
-    echo "   Create a bot via @BotFather → /newbot"
-    echo "   Recommended name: ${PROFILE}-bot"
-    echo ""
-    read -p "   Paste bot token (or Enter to skip): " TG_TOKEN
-fi
-
-if [ -n "$TG_TOKEN" ]; then
-    # Patch openclaw.json with telegram config
-    python3 << PYEOF2
-import json, os
-config_path = os.path.expanduser("~/.openclaw-${PROFILE}/openclaw.json")
-c = json.load(open(config_path))
-c.setdefault("channels", {})["telegram"] = {
-    "enabled": True,
-    "botToken": "${TG_TOKEN}",
-    "dmPolicy": "pairing",
-    "groupPolicy": "allowlist",
-    "groups": {},
-    "streamMode": "partial"
-}
-c.setdefault("plugins", {}).setdefault("entries", {})["telegram"] = {"enabled": True}
-json.dump(c, open(config_path, "w"), indent=2)
-print("   ✅ Telegram configured")
-PYEOF2
-
-    # Save to vault if new token
-    if [ -z "$EXISTING_TOKEN" ] && [ -f "$ENC_FILE" ]; then
-        echo -e "${G}🔐 Saving token to vault as ${BOT_TOKEN_VAR}...${N}"
-        # Decrypt → append → re-encrypt
-        TEMP_VAULT=$(mktemp)
-        sops --decrypt --input-type dotenv --output-type dotenv "$ENC_FILE" > "$TEMP_VAULT"
-
-        # Remove existing line if any, then append
-        grep -v "^${BOT_TOKEN_VAR}=" "$TEMP_VAULT" > "${TEMP_VAULT}.tmp" || true
-        echo "${BOT_TOKEN_VAR}=${TG_TOKEN}" >> "${TEMP_VAULT}.tmp"
-        mv "${TEMP_VAULT}.tmp" "$TEMP_VAULT"
-
-        # Re-encrypt
-        AGE_PUB=$(grep "public key:" "$SOPS_AGE_KEY_FILE" | awk '{print $NF}')
-        sops --encrypt --age "$AGE_PUB" --input-type dotenv --output-type dotenv "$TEMP_VAULT" > "$ENC_FILE"
-        rm -f "$TEMP_VAULT"
-        echo -e "${G}   ✅ Token saved to vault${N}"
-
-        # Also update profile .env
-        echo "${BOT_TOKEN_VAR}=${TG_TOKEN}" >> "${PROFILE_DIR}/.env"
-
-        # Commit vault changes
-        (cd "$VAULT_DIR" && git add -A && git commit -m "add ${BOT_TOKEN_VAR}" && git push) 2>/dev/null || true
-    fi
-
-    echo ""
-    echo -e "${Y}📱 Next: Create a Telegram group for this profile${N}"
-    echo "   1. Create group (enable Topics in group settings)"
-    echo "   2. Add @$(echo $TG_TOKEN | cut -d: -f1) bot to group"
-    echo "   3. Send a message, then run:"
-    echo "      openclaw --profile ${PROFILE} configure --section telegram"
-    echo "   4. Or manually add group ID to openclaw.json"
-fi
+echo -e "${G}🔍 Validating config...${N}"
+openclaw --profile "$PROFILE" doctor 2>&1 | head -20 || true
 
 # ==========================================
-# 8. Kill any orphan gateway for this profile
+# 9. Kill any orphan gateway for this profile
 # ==========================================
 pkill -f "openclaw-gateway.*${PORT}" 2>/dev/null || true
 
@@ -306,4 +308,10 @@ echo ""
 echo "   Start gateway:"
 echo "   openclaw --profile ${PROFILE} gateway --port ${PORT}"
 echo ""
+if [ -n "$TG_TOKEN" ]; then
+    echo -e "${Y}📱 Telegram setup:${N}"
+    echo "   1. Create group (enable Topics)"
+    echo "   2. Add bot to group"
+    echo "   3. openclaw --profile ${PROFILE} configure --section telegram"
+fi
 [ "$TEMPLATE" = "dev-team" ] && echo "   Clone repos: cd ${PROFILE_DIR}/repos && git clone <url>"
