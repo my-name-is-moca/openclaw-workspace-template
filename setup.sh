@@ -23,18 +23,35 @@ echo -e "   Template: ${TEMPLATE}"
 echo ""
 
 # ==========================================
-# 1. Load .env for API keys
+# 1. Load secrets (vault or plain .env)
 # ==========================================
 ENV_FILE="${SCRIPT_DIR}/.env"
-if [ ! -f "$ENV_FILE" ]; then
-    echo -e "${RED}❌ .env not found. Copy .env.example → .env and fill in your keys first.${NC}"
+ENC_FILE="${SCRIPT_DIR}/.env.enc"
+
+if [ -f "$ENV_FILE" ]; then
+    echo -e "${GREEN}🔑 Loading secrets from .env${NC}"
+    source "$ENV_FILE"
+elif [ -f "$ENC_FILE" ]; then
+    echo -e "${GREEN}🔐 Decrypting secrets from .env.enc (sops + age)${NC}"
+    if ! command -v sops &>/dev/null; then
+        echo -e "${RED}❌ sops not installed. Run: brew install sops${NC}"
+        exit 1
+    fi
+    # Decrypt to temp file, source it, then delete
+    TEMP_ENV=$(mktemp)
+    sops --decrypt --input-type dotenv --output-type dotenv "$ENC_FILE" > "$TEMP_ENV" 2>/dev/null
+    source "$TEMP_ENV"
+    rm -f "$TEMP_ENV"
+else
+    echo -e "${RED}❌ No secrets found. Either:${NC}"
+    echo "   1. Copy .env.example → .env and fill in your keys"
+    echo "   2. Create .env.enc: sops --encrypt --age <pubkey> .env > .env.enc"
     exit 1
 fi
-source "$ENV_FILE"
 
 # Check required key
 if [ -z "$ANTHROPIC_API_KEY" ]; then
-    echo -e "${RED}❌ ANTHROPIC_API_KEY not set in .env${NC}"
+    echo -e "${RED}❌ ANTHROPIC_API_KEY not found in secrets${NC}"
     exit 1
 fi
 
@@ -112,9 +129,14 @@ fi
 mkdir -p "${WORKSPACE}/memory"
 
 # ==========================================
-# 5. Copy .env to profile
+# 5. Deploy .env to profile (decrypt if needed)
 # ==========================================
-cp "$ENV_FILE" "${PROFILE_DIR}/.env"
+if [ -f "$ENV_FILE" ]; then
+    cp "$ENV_FILE" "${PROFILE_DIR}/.env"
+elif [ -f "$ENC_FILE" ]; then
+    sops --decrypt --input-type dotenv --output-type dotenv "$ENC_FILE" > "${PROFILE_DIR}/.env"
+fi
+chmod 600 "${PROFILE_DIR}/.env"
 
 # ==========================================
 # 6. Copy skill-registry if it exists
