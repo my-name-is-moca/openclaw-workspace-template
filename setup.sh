@@ -164,10 +164,10 @@ echo -e "${G}📋 Applying template: ${TEMPLATE}${N}"
 
 TEMPLATE_DIR="${SCRIPT_DIR}/workspace/templates"
 
-# Copy base template
+# Copy base template (force overwrite bootstrap defaults)
 if [ -d "${TEMPLATE_DIR}/base" ]; then
     for f in "${TEMPLATE_DIR}/base/"*; do
-        [ -f "$f" ] && cp -n "$f" "$WORKSPACE/" 2>/dev/null || true
+        [ -f "$f" ] && cp "$f" "$WORKSPACE/" 2>/dev/null || true
     done
 fi
 
@@ -181,8 +181,14 @@ fi
 # Ensure dirs exist
 mkdir -p "$WORKSPACE/memory" "$WORKSPACE/skills"
 
-# Remove bootstrap (we're past that)
+# Remove bootstrap defaults (we have our own)
 rm -f "$WORKSPACE/BOOTSTRAP.md"
+
+# For non-base templates, copy the main workspace curated files
+# (AGENTS.md, SOUL.md, HEARTBEAT.md, TOOLS.md from the script's workspace/)
+for f in AGENTS.md SOUL.md HEARTBEAT.md TOOLS.md; do
+    [ -f "${SCRIPT_DIR}/workspace/${f}" ] && cp "${SCRIPT_DIR}/workspace/${f}" "$WORKSPACE/"
+done
 
 # Copy skill registry if available
 [ -f "${SCRIPT_DIR}/workspace/skill-registry.json" ] && \
