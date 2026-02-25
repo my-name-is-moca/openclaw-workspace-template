@@ -1,9 +1,10 @@
 #!/bin/bash
 # ============================================
 # OpenClaw Profile Setup (Non-Interactive)
-# Usage: ./setup.sh <profile> [template] [port]
+# Usage: ./setup.sh <profile> [template] [port] [agents]
 # Example: ./setup.sh dev base 18889
-#          ./setup.sh basecard dev-team 18989
+#          ./setup.sh defidash dev-team 19789 frontend,sdk,website
+#          ./setup.sh myapp dev-team 19889 frontend,backend,devops
 # ============================================
 
 set -e
@@ -11,6 +12,7 @@ set -e
 PROFILE=${1:-dev}
 TEMPLATE=${2:-base}
 PORT=${3:-$((18789 + RANDOM % 200 + 100))}
+AGENTS_CSV=${4:-frontend,backend,contract}
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROFILE_DIR="$HOME/.openclaw-${PROFILE}"
 VAULT_DIR="${SOPS_VAULT:-$HOME/sops}"
@@ -24,6 +26,7 @@ echo "   Profile:  ${PROFILE}"
 echo "   Template: ${TEMPLATE}"
 echo "   Port:     ${PORT}"
 echo "   Dir:      ${PROFILE_DIR}"
+[ "$TEMPLATE" = "dev-team" ] && echo "   Agents:   ${AGENTS_CSV}"
 echo ""
 
 # ==========================================
@@ -276,23 +279,45 @@ rm -f "$WORKSPACE/BOOTSTRAP.md"
 # ==========================================
 if [ "$TEMPLATE" = "dev-team" ]; then
     echo -e "${G}👥 Creating agent workspaces...${N}"
-    for agent in frontend backend contract; do
+    IFS=',' read -ra AGENTS <<< "$AGENTS_CSV"
+    
+    # Build agents list for openclaw.json
+    AGENTS_JSON="["
+    AGENTS_JSON+="{\"id\":\"pm\",\"default\":true,\"name\":\"Project Manager\",\"workspace\":\"${PROFILE_DIR}/workspace\"}"
+    for agent in "${AGENTS[@]}"; do
+        agent=$(echo "$agent" | xargs)  # trim whitespace
         agent_ws="${PROFILE_DIR}/workspace-${agent}"
-        mkdir -p "${agent_ws}/memory"
+        mkdir -p "${agent_ws}/memory" "${agent_ws}/skills"
+        AGENT_UPPER=$(echo "$agent" | sed 's/./\U&/')
         [ ! -f "${agent_ws}/AGENTS.md" ] && cat > "${agent_ws}/AGENTS.md" << EOF
-# AGENTS.md - ${agent^} Agent
+# AGENTS.md - ${AGENT_UPPER} Agent
 
 ## Role
-${agent^} development agent.
+${AGENT_UPPER} development agent.
 
 ## Rules
 - Work only in your assigned repo under repos/
 - Create feature branches, never push to main
 - Run tests before creating PRs
 EOF
+        [ ! -f "${agent_ws}/SOUL.md" ] && cp "${SCRIPT_DIR}/workspace/SOUL.md" "${agent_ws}/" 2>/dev/null || true
+        AGENTS_JSON+=",{\"id\":\"${agent}\",\"name\":\"${AGENT_UPPER} Dev\",\"workspace\":\"${agent_ws}\"}"
+        echo -e "${G}   📂 workspace-${agent}/${N}"
     done
+    AGENTS_JSON+="]"
+    
+    # Patch openclaw.json with dynamic agents list
+    python3 << PYEOF
+import json
+config_path = "${PROFILE_DIR}/openclaw.json"
+c = json.load(open(config_path))
+c["agents"]["list"] = json.loads('${AGENTS_JSON}')
+json.dump(c, open(config_path, "w"), indent=2)
+PYEOF
+    
     mkdir -p "${PROFILE_DIR}/repos"
     echo -e "${G}   📂 Created repos/ for git clones${N}"
+    echo -e "${G}   👥 Agents: pm (HQ), ${AGENTS_CSV}${N}"
 fi
 
 # ==========================================
