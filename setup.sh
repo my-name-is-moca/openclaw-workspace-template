@@ -236,7 +236,7 @@ TEMPLATE_DIR="${SCRIPT_DIR}/workspace/templates"
 
 # Always copy curated workspace files from script repo
 # (overrides bootstrap defaults from onboard)
-for f in AGENTS.md SOUL.md HEARTBEAT.md TOOLS.md USER.md; do
+for f in AGENTS.md SOUL.md HEARTBEAT.md TOOLS.md USER.md IDENTITY.md BOOT.md MEMORY.md; do
     [ -f "${SCRIPT_DIR}/workspace/${f}" ] && cp "${SCRIPT_DIR}/workspace/${f}" "$WORKSPACE/"
 done
 
