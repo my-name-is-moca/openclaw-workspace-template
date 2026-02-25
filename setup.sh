@@ -167,8 +167,8 @@ defaults["maxConcurrent"] = 8
 # Subagents (docs: agents.defaults.subagents -- not in reference but used by runtime)
 defaults["subagents"] = {"maxConcurrent": 16, "model": "claude-sonnet-4-20250514"}
 
-# Compaction (docs: agents.defaults.compaction)
-defaults["compaction"] = {"mode": "safeguard"}
+# Compaction (docs: agents.defaults.compaction) + memoryFlush
+defaults["compaction"] = {"mode": "safeguard", "memoryFlush": {"enabled": True}}
 
 # Memory search (Gemini embeddings)
 gemini_key = os.environ.get("GEMINI_API_KEY", "")
@@ -249,6 +249,13 @@ if [ -d "${TEMPLATE_DIR}/${TEMPLATE}" ] && [ "$TEMPLATE" != "base" ]; then
     for f in "${TEMPLATE_DIR}/${TEMPLATE}/"*; do
         [ -f "$f" ] && cp "$f" "$WORKSPACE/" 2>/dev/null || true
     done
+fi
+
+# Copy global dir (team-wide rules)
+if [ -d "${SCRIPT_DIR}/workspace/global" ]; then
+    mkdir -p "${PROFILE_DIR}/global"
+    cp -r "${SCRIPT_DIR}/workspace/global/"* "${PROFILE_DIR}/global/" 2>/dev/null || true
+    echo -e "${G}   📋 global/GLOBAL_AGENTS.md deployed${N}"
 fi
 
 # Ensure dirs exist

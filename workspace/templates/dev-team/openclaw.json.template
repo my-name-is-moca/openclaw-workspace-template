@@ -1,7 +1,7 @@
 {
   "agents": {
     "defaults": {
-      "compaction": { "mode": "safeguard" },
+      "compaction": { "mode": "safeguard", "memoryFlush": { "enabled": true } },
       "maxConcurrent": 8,
       "subagents": {
         "maxConcurrent": 16,
