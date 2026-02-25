@@ -236,7 +236,7 @@ TEMPLATE_DIR="${SCRIPT_DIR}/workspace/templates"
 
 # Always copy curated workspace files from script repo
 # (overrides bootstrap defaults from onboard)
-for f in AGENTS.md SOUL.md HEARTBEAT.md TOOLS.md; do
+for f in AGENTS.md SOUL.md HEARTBEAT.md TOOLS.md USER.md; do
     [ -f "${SCRIPT_DIR}/workspace/${f}" ] && cp "${SCRIPT_DIR}/workspace/${f}" "$WORKSPACE/"
 done
 
@@ -336,8 +336,11 @@ echo "   openclaw --profile ${PROFILE} gateway --port ${PORT}"
 echo ""
 if [ -n "$TG_TOKEN" ]; then
     echo -e "${Y}📱 Telegram setup:${N}"
-    echo "   1. Create group (enable Topics)"
-    echo "   2. Add bot to group"
+    echo "   1. Create a Telegram group"
+    echo "   2. Add bot to group (make admin)"
     echo "   3. openclaw --profile ${PROFILE} configure --section telegram"
 fi
+echo ""
+echo -e "${Y}👤 Personalize:${N}"
+echo "   Edit ${WORKSPACE}/USER.md with your preferences"
 [ "$TEMPLATE" = "dev-team" ] && echo "   Clone repos: cd ${PROFILE_DIR}/repos && git clone <url>"
