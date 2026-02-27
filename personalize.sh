@@ -122,5 +122,5 @@ if [ -n "$AGENT_WORKSPACES" ]; then
 fi
 
 echo ""
-echo -e "${G}Done! Start your gateway:${N}"
-echo "   openclaw --profile ${PROFILE} gateway --port \$(jq -r '.gateway.port' ${PROFILE_DIR}/openclaw.json)"
+echo -e "${G}Done! Start your gateway (use env vars, not --profile flag):${N}"
+echo "   export OPENCLAW_PROFILE=\"${PROFILE}\" && openclaw gateway --port \$(jq -r '.gateway.port' ${PROFILE_DIR}/openclaw.json)"
