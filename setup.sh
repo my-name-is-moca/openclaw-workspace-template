@@ -213,14 +213,9 @@ if tg_token:
         "streaming": "partial"  # docs: "streaming" not "streamMode"
     }
 
-# --- Remove plugins.entries.telegram (not needed, telegram is built-in) ---
-plugins = c.get("plugins", {})
-entries = plugins.get("entries", {})
-entries.pop("telegram", None)
-if not entries:
-    plugins.pop("entries", None)
-if not plugins:
-    c.pop("plugins", None)
+# --- Enable telegram plugin if token is set ---
+if tg_token:
+    c.setdefault("plugins", {}).setdefault("entries", {})["telegram"] = {"enabled": True}
 
 # --- Final save ---
 json.dump(c, open(config_path, "w"), indent=2)
