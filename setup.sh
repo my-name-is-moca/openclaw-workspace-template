@@ -321,7 +321,13 @@ PYEOF
 fi
 
 # ==========================================
-# 8. Kill any orphan gateway for this profile
+# 8. Install gateway daemon (launchd/systemd)
+# ==========================================
+echo -e "${G}🔧 Installing gateway daemon...${N}"
+openclaw --profile "$PROFILE" gateway install 2>&1 || echo -e "${Y}⚠️  Daemon install skipped (manual: openclaw --profile ${PROFILE} gateway install)${N}"
+
+# ==========================================
+# 9. Kill any orphan gateway for this profile
 # ==========================================
 pkill -f "openclaw-gateway.*${PORT}" 2>/dev/null || true
 
@@ -332,7 +338,8 @@ echo ""
 echo -e "${G}✅ Profile '${PROFILE}' ready!${N}"
 echo ""
 echo "   Start gateway:"
-echo "   openclaw --profile ${PROFILE} gateway --port ${PORT}"
+echo "   openclaw --profile ${PROFILE} gateway start"
+echo "   (or foreground: openclaw --profile ${PROFILE} gateway --port ${PORT})"
 echo ""
 if [ -n "$TG_TOKEN" ]; then
     echo -e "${Y}📱 Telegram setup:${N}"
